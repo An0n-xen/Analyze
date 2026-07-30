@@ -3,6 +3,7 @@
 Upload a Hubtel transaction CSV (or use the bundled sample) and explore revenue,
 fees, plans, locations, networks, peak hours, top customers and refunds.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -58,7 +59,8 @@ def load_data(source) -> tuple[pd.DataFrame, int]:
 
     # Timestamps are US-format: MM/DD/YYYY HH:MM:SS
     df["Date"] = pd.to_datetime(
-        df["Date"].str.strip(), format="%m/%d/%Y %H:%M:%S", errors="coerce"
+        df["Date"].str.strip(),
+        errors="coerce",
     )
 
     for col in ("Amount Paid", "Amount After Charges", "Charges"):
@@ -78,16 +80,16 @@ def load_data(source) -> tuple[pd.DataFrame, int]:
         .fillna("Unknown")
     )
     # Business rule: rows with no location predate the second site -> DREAMERS.
-    df["Location"] = (
-        parts.str[2].str.strip().replace("", pd.NA).fillna("DREAMERS")
-    )
+    df["Location"] = parts.str[2].str.strip().replace("", pd.NA).fillna("DREAMERS")
 
     channel = df.get("Channel", pd.Series("", index=df.index)).fillna("").str.strip()
     df["Network"] = channel.map(NETWORK_MAP).fillna(channel).replace("", "Unknown")
 
-    df["Status"] = df.get("Status", pd.Series("Unknown", index=df.index)).fillna(
-        "Unknown"
-    ).str.strip()
+    df["Status"] = (
+        df.get("Status", pd.Series("Unknown", index=df.index))
+        .fillna("Unknown")
+        .str.strip()
+    )
 
     # Refund flag (Is Refunded column holds "True"/"False" strings).
     refunded = df.get("Is Refunded", pd.Series("False", index=df.index))
@@ -109,7 +111,9 @@ def load_data(source) -> tuple[pd.DataFrame, int]:
 # Header & data source
 # --------------------------------------------------------------------------- #
 st.title("📶 SKYNET Payments Dashboard")
-st.caption("Analyse Hubtel mobile-money transactions — revenue, fees, plans, locations & more.")
+st.caption(
+    "Analyse Hubtel mobile-money transactions — revenue, fees, plans, locations & more."
+)
 
 uploaded = st.file_uploader("Upload a Hubtel transaction CSV", type="csv")
 
@@ -190,15 +194,23 @@ n_tx = len(dff)
 n_cust = dff["Customer Number"].nunique()
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Gross Paid", money(gross),
-          help="Total customers paid, before Hubtel charges.")
-c2.metric("Revenue After Charges", money(rev_after_charges),
-          help="Gross paid minus Hubtel transaction charges "
-               "(all transactions, before refunds).")
-c3.metric("Net Revenue After Refunds", money(net_after_refunds),
-          help="Revenue after charges, minus refunded transactions.")
-c4.metric("Total Fees", money(fees),
-          help="Total Hubtel charges deducted from payments.")
+c1.metric(
+    "Gross Paid", money(gross), help="Total customers paid, before Hubtel charges."
+)
+c2.metric(
+    "Revenue After Charges",
+    money(rev_after_charges),
+    help="Gross paid minus Hubtel transaction charges "
+    "(all transactions, before refunds).",
+)
+c3.metric(
+    "Net Revenue After Refunds",
+    money(net_after_refunds),
+    help="Revenue after charges, minus refunded transactions.",
+)
+c4.metric(
+    "Total Fees", money(fees), help="Total Hubtel charges deducted from payments."
+)
 c5.metric("Transactions", f"{n_tx:,}")
 c6.metric("Unique Customers", f"{n_cust:,}")
 
@@ -257,19 +269,24 @@ def revenue_by(col: str, title: str):
         .sort_values("Amount Paid", ascending=False)
     )
     fig = px.bar(
-        g, x=col, y="Amount Paid", color=col, text_auto=".2s",
-        color_discrete_sequence=PALETTE, title=title,
+        g,
+        x=col,
+        y="Amount Paid",
+        color=col,
+        text_auto=".2s",
+        color_discrete_sequence=PALETTE,
+        title=title,
     )
-    fig.update_layout(showlegend=False, yaxis_title=f"Revenue ({CURRENCY})", xaxis_title="")
+    fig.update_layout(
+        showlegend=False, yaxis_title=f"Revenue ({CURRENCY})", xaxis_title=""
+    )
     return fig
 
 
 tab_trend, tab_break = st.tabs(["📈 Trends", "🧩 Breakdowns"])
 
 with tab_trend:
-    freq_label = st.radio(
-        "Aggregate by", ["Daily", "Weekly"], horizontal=True, index=0
-    )
+    freq_label = st.radio("Aggregate by", ["Daily", "Weekly"], horizontal=True, index=0)
     rule = "D" if freq_label == "Daily" else "W"
     ts = (
         dff.set_index("Date")
@@ -278,7 +295,10 @@ with tab_trend:
         .reset_index()
     )
     fig_ts = px.area(
-        ts, x="Date", y="Amount Paid", color="Location",
+        ts,
+        x="Date",
+        y="Amount Paid",
+        color="Location",
         color_discrete_sequence=PALETTE,
         title=f"{freq_label} revenue over time by location",
     )
@@ -289,7 +309,10 @@ with tab_trend:
         Revenue="sum", Transactions="count"
     )
     fig_hour = px.bar(
-        hourly, x="Hour", y="Transactions", color="Revenue",
+        hourly,
+        x="Hour",
+        y="Transactions",
+        color="Revenue",
         color_continuous_scale="Greens",
         title="Transactions by hour of day (peak times)",
     )
@@ -307,8 +330,12 @@ with tab_break:
     with c:
         net_g = dff.groupby("Network", as_index=False)["Amount Paid"].sum()
         fig_net = px.pie(
-            net_g, names="Network", values="Amount Paid", hole=0.5,
-            color_discrete_sequence=PALETTE, title="Revenue share by network",
+            net_g,
+            names="Network",
+            values="Amount Paid",
+            hole=0.5,
+            color_discrete_sequence=PALETTE,
+            title="Revenue share by network",
         )
         st.plotly_chart(fig_net, width="stretch")
     with d:
@@ -320,7 +347,11 @@ with tab_break:
             }
         )
         fig_fee = px.bar(
-            summary, x="Metric", y="Amount", color="Metric", text_auto=".2s",
+            summary,
+            x="Metric",
+            y="Amount",
+            color="Metric",
+            text_auto=".2s",
             color_discrete_sequence=PALETTE,
             title=f"Hubtel fees are {fee_pct:.1f}% of gross",
         )
@@ -335,8 +366,16 @@ st.divider()
 # --------------------------------------------------------------------------- #
 st.subheader("Filtered transactions")
 display_cols = [
-    "Date", "Plan", "Location", "Network", "Amount Paid",
-    "Amount After Charges", "Charges", "Status", "Refunded", "Customer Number",
+    "Date",
+    "Plan",
+    "Location",
+    "Network",
+    "Amount Paid",
+    "Amount After Charges",
+    "Charges",
+    "Status",
+    "Refunded",
+    "Customer Number",
 ]
 display_cols = [c for c in display_cols if c in dff.columns]
 st.dataframe(dff[display_cols], width="stretch", hide_index=True)
