@@ -261,20 +261,30 @@ st.divider()
 # --------------------------------------------------------------------------- #
 # Charts
 # --------------------------------------------------------------------------- #
-def revenue_by(col: str, title: str):
-    """Bar chart of gross revenue grouped by a categorical column."""
+def revenue_by(
+    col: str,
+    title: str,
+    amount_col: str = "Amount Paid",
+    order: list[str] | None = None,
+):
+    """Bar chart of revenue grouped by a categorical column.
+
+    Pass `order` to fix the bar order and colours, so charts shown side by side
+    keep each category in the same place and colour.
+    """
     g = (
-        dff.groupby(col, as_index=False)["Amount Paid"]
+        dff.groupby(col, as_index=False)[amount_col]
         .sum()
-        .sort_values("Amount Paid", ascending=False)
+        .sort_values(amount_col, ascending=False)
     )
     fig = px.bar(
         g,
         x=col,
-        y="Amount Paid",
+        y=amount_col,
         color=col,
         text_auto=".2s",
         color_discrete_sequence=PALETTE,
+        category_orders={col: order} if order else None,
         title=title,
     )
     fig.update_layout(
@@ -290,17 +300,17 @@ with tab_trend:
     rule = "D" if freq_label == "Daily" else "W"
     ts = (
         dff.set_index("Date")
-        .groupby([pd.Grouper(freq=rule), "Location"])["Amount Paid"]
+        .groupby([pd.Grouper(freq=rule), "Location"])["Amount After Charges"]
         .sum()
         .reset_index()
     )
     fig_ts = px.area(
         ts,
         x="Date",
-        y="Amount Paid",
+        y="Amount After Charges",
         color="Location",
         color_discrete_sequence=PALETTE,
-        title=f"{freq_label} revenue over time by location",
+        title=f"{freq_label} revenue over time by location (after Hubtel fees)",
     )
     fig_ts.update_layout(yaxis_title=f"Revenue ({CURRENCY})", xaxis_title="")
     st.plotly_chart(fig_ts, width="stretch")
@@ -320,14 +330,92 @@ with tab_trend:
     st.plotly_chart(fig_hour, width="stretch")
 
 with tab_break:
-    a, b = st.columns(2)
-    with a:
-        st.plotly_chart(revenue_by("Plan", "Revenue by plan"), width="stretch")
-    with b:
-        st.plotly_chart(revenue_by("Location", "Revenue by location"), width="stretch")
+    # Hostel split — one groupby feeds both breakdowns so they always agree.
+    split = (
+        dff.groupby("Location", as_index=False)
+        .agg(
+            **{
+                "Gross Paid": ("Amount Paid", "sum"),
+                "Charges": ("Charges", "sum"),
+                "After Charges": ("Amount After Charges", "sum"),
+                "Transactions": ("Amount Paid", "size"),
+            }
+        )
+        .sort_values("Gross Paid", ascending=False)
+    )
+    hostel_order = split["Location"].tolist()
 
-    c, d = st.columns(2)
-    with c:
+    def share_of(amounts: pd.Series) -> pd.Series | int:
+        """Each hostel's percentage of this breakdown's own total."""
+        total = amounts.sum()
+        return amounts / total * 100 if total else 0
+
+    with_charges, without_charges = st.columns(2)
+    with with_charges:
+        st.markdown("**With charges: total money in**")
+        st.metric(
+            "Gross Paid",
+            money(gross),
+            help="Total customers paid, before Hubtel charges.",
+        )
+        fig_money_in = revenue_by(
+            "Location",
+            "Total money in by hostel (with charges)",
+            order=hostel_order,
+        )
+        fig_money_in.update_layout(yaxis_title=f"Total money in ({CURRENCY})")
+        st.plotly_chart(fig_money_in, width="stretch")
+        st.dataframe(
+            split.assign(**{"Share %": share_of(split["Gross Paid"])})[
+                ["Location", "Gross Paid", "Share %", "Transactions"]
+            ],
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Location": "Hostel",
+                "Gross Paid": st.column_config.NumberColumn(format="GH₵%.2f"),
+                "Share %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+    with without_charges:
+        st.markdown("**Without charges: revenue / profit**")
+        st.metric(
+            "Revenue After Charges",
+            money(rev_after_charges),
+            help="Gross paid minus Hubtel transaction charges.",
+        )
+        st.plotly_chart(
+            revenue_by(
+                "Location",
+                "Revenue by hostel (without charges)",
+                amount_col="Amount After Charges",
+                order=hostel_order,
+            ),
+            width="stretch",
+        )
+        st.dataframe(
+            split.assign(**{"Share %": share_of(split["After Charges"])})[
+                ["Location", "Charges", "After Charges", "Share %"]
+            ],
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Location": "Hostel",
+                "Charges": st.column_config.NumberColumn(format="GH₵%.2f"),
+                "After Charges": st.column_config.NumberColumn(format="GH₵%.2f"),
+                "Share %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+    if ref_count:
+        st.caption(
+            "Refunds are still counted in both breakdowns. To remove them, tick "
+            "“Exclude refunded transactions” in the sidebar."
+        )
+
+    plan_col, network_col, fees_col = st.columns(3)
+    with plan_col:
+        st.plotly_chart(revenue_by("Plan", "Revenue by plan"), width="stretch")
+    with network_col:
         net_g = dff.groupby("Network", as_index=False)["Amount Paid"].sum()
         fig_net = px.pie(
             net_g,
@@ -338,7 +426,7 @@ with tab_break:
             title="Revenue share by network",
         )
         st.plotly_chart(fig_net, width="stretch")
-    with d:
+    with fees_col:
         fee_pct = (fees / gross * 100) if gross else 0
         summary = pd.DataFrame(
             {
